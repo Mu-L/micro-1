@@ -40,6 +40,10 @@ var allFiles [][]RuntimeFile
 var realFiles [][]RuntimeFile
 
 func init() {
+	initRuntimeVars()
+}
+
+func initRuntimeVars() {
 	allFiles = make([][]RuntimeFile, NumTypes)
 	realFiles = make([][]RuntimeFile, NumTypes)
 }
@@ -57,12 +61,6 @@ type realFile string
 
 // some asset file
 type assetFile string
-
-// some file on filesystem but with a different name
-type namedFile struct {
-	realFile
-	name string
-}
 
 // a file with the data stored in memory
 type memoryFile struct {
@@ -93,10 +91,6 @@ func (af assetFile) Name() string {
 
 func (af assetFile) Data() ([]byte, error) {
 	return rt.Asset(string(af))
-}
-
-func (nf namedFile) Name() string {
-	return nf.name
 }
 
 // AddRuntimeFile registers a file for the given filetype
@@ -166,19 +160,30 @@ func ListRealRuntimeFiles(fileType RTFiletype) []RuntimeFile {
 	return realFiles[fileType]
 }
 
-// InitRuntimeFiles initializes all assets file and the config directory
-func InitRuntimeFiles() {
+// InitRuntimeFiles initializes all assets files and the config directory.
+// If `user` is false, InitRuntimeFiles ignores the config directory and
+// initializes asset files only.
+func InitRuntimeFiles(user bool) {
 	add := func(fileType RTFiletype, dir, pattern string) {
-		AddRuntimeFilesFromDirectory(fileType, filepath.Join(ConfigDir, dir), pattern)
+		if user {
+			AddRuntimeFilesFromDirectory(fileType, filepath.Join(ConfigDir, dir), pattern)
+		}
 		AddRuntimeFilesFromAssets(fileType, path.Join("runtime", dir), pattern)
 	}
+
+	initRuntimeVars()
 
 	add(RTColorscheme, "colorschemes", "*.micro")
 	add(RTSyntax, "syntax", "*.yaml")
 	add(RTSyntaxHeader, "syntax", "*.hdr")
 	add(RTHelp, "help", "*.md")
+}
 
+// InitPlugins initializes the plugins
+func InitPlugins() {
+	Plugins = Plugins[:0]
 	initlua := filepath.Join(ConfigDir, "init.lua")
+
 	if _, err := os.Stat(initlua); !os.IsNotExist(err) {
 		p := new(Plugin)
 		p.Name = "initlua"

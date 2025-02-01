@@ -8,6 +8,7 @@ import (
 	"github.com/zyedidia/micro/v2/internal/buffer"
 	"github.com/zyedidia/micro/v2/internal/config"
 	"github.com/zyedidia/micro/v2/internal/util"
+	"github.com/zyedidia/micro/v2/pkg/highlight"
 )
 
 // This file is meant (for now) for autocompletion in command mode, not
@@ -81,10 +82,49 @@ func colorschemeComplete(input string) (string, []string) {
 func filetypeComplete(input string) (string, []string) {
 	var suggestions []string
 
-	for _, f := range config.ListRuntimeFiles(config.RTSyntax) {
-		if strings.HasPrefix(f.Name(), input) {
-			suggestions = append(suggestions, f.Name())
+	// We cannot match filetypes just by names of syntax files,
+	// since those names may be different from the actual filetype values
+	// specified inside syntax files (e.g. "c++" filetype in cpp.yaml).
+	// So we need to parse filetype values out of those files.
+	for _, f := range config.ListRealRuntimeFiles(config.RTSyntax) {
+		data, err := f.Data()
+		if err != nil {
+			continue
 		}
+		header, err := highlight.MakeHeaderYaml(data)
+		if err != nil {
+			continue
+		}
+		// Prevent duplicated defaults
+		if header.FileType == "off" || header.FileType == "unknown" {
+			continue
+		}
+		if strings.HasPrefix(header.FileType, input) {
+			suggestions = append(suggestions, header.FileType)
+		}
+	}
+headerLoop:
+	for _, f := range config.ListRuntimeFiles(config.RTSyntaxHeader) {
+		data, err := f.Data()
+		if err != nil {
+			continue
+		}
+		header, err := highlight.MakeHeader(data)
+		if err != nil {
+			continue
+		}
+		for _, v := range suggestions {
+			if v == header.FileType {
+				continue headerLoop
+			}
+		}
+		if strings.HasPrefix(header.FileType, input) {
+			suggestions = append(suggestions, header.FileType)
+		}
+	}
+
+	if strings.HasPrefix("off", input) {
+		suggestions = append(suggestions, "off")
 	}
 
 	var chosen string
@@ -93,15 +133,6 @@ func filetypeComplete(input string) (string, []string) {
 	}
 
 	return chosen, suggestions
-}
-
-func contains(s []string, e string) bool {
-	for _, a := range s {
-		if a == e {
-			return true
-		}
-	}
-	return false
 }
 
 // OptionComplete autocompletes options
@@ -192,13 +223,6 @@ func OptionValueComplete(b *buffer.Buffer) ([]string, []string) {
 			_, suggestions = colorschemeComplete(input)
 		case "filetype":
 			_, suggestions = filetypeComplete(input)
-		case "fileformat":
-			if strings.HasPrefix("unix", input) {
-				suggestions = append(suggestions, "unix")
-			}
-			if strings.HasPrefix("dos", input) {
-				suggestions = append(suggestions, "dos")
-			}
 		case "sucmd":
 			if strings.HasPrefix("sudo", input) {
 				suggestions = append(suggestions, "sudo")
@@ -206,15 +230,13 @@ func OptionValueComplete(b *buffer.Buffer) ([]string, []string) {
 			if strings.HasPrefix("doas", input) {
 				suggestions = append(suggestions, "doas")
 			}
-		case "clipboard":
-			if strings.HasPrefix("external", input) {
-				suggestions = append(suggestions, "external")
-			}
-			if strings.HasPrefix("internal", input) {
-				suggestions = append(suggestions, "internal")
-			}
-			if strings.HasPrefix("terminal", input) {
-				suggestions = append(suggestions, "terminal")
+		default:
+			if choices, ok := config.OptionChoices[inputOpt]; ok {
+				for _, choice := range choices {
+					if strings.HasPrefix(choice, input) {
+						suggestions = append(suggestions, choice)
+					}
+				}
 			}
 		}
 	}
